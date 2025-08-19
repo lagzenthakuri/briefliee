@@ -36,7 +36,7 @@ export function useSummary(): UseSummaryReturn {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer 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`,
+          'Authorization': `Bearer ${process.env.OPEN_ROUTER_API_KEY}`,
         },
         body: JSON.stringify({
           model: 'openai/chatgpt-4o-latest', // or 'gpt-4' if you have access

@@ -76,7 +76,7 @@ export function useSpeechToText(): UseSpeechToTextReturn {
       while (transcriptData.status !== "completed" && transcriptData.status !== "error") {
         await new Promise((r) => setTimeout(r, 3000)); // wait 3s
         const pollRes = await fetch(`https://api.assemblyai.com/v2/transcript/${data.id}`, {
-          headers: { Authorization: "03befe2d1c0e4886a6444f09fcda4f2b" },
+          headers: { Authorization:  `${process.env.ASSEMBLY_API_KEY}` },
         });
         transcriptData = await pollRes.json();
         console.log("Polling status:", transcriptData.status);
