@@ -1,26 +1,32 @@
-import React, { useState, useEffect, useRef } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  ActivityIndicator,
-  Alert,
-  Animated,
-} from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Mic, Square, RefreshCw, Volume2 } from 'lucide-react-native';
 import { useAudioRecording } from '@/hooks/useAudioRecording';
 import { useSpeechToText } from '@/hooks/useSpeechToText';
 import { useSummary } from '@/hooks/useSummary';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Mic, RefreshCw, Square, Volume2 } from 'lucide-react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Animated,
+  FlatList,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function VoiceRecorderScreen() {
   const [isRecording, setIsRecording] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [transcribedText, setTranscribedText] = useState('');
   const [summary, setSummary] = useState('');
+  const [showHistory, setShowHistory] = useState(false);
+  const [historyRecords, setHistoryRecords] = useState<Array<{ _id?: string; transcription: string; summary: string; createdAt?: string }>>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -29,6 +35,14 @@ export default function VoiceRecorderScreen() {
   const { startRecording, stopRecording, checkPermissions } = useAudioRecording();
   const { transcribe, isTranscribing } = useSpeechToText();
   const { generateSummary, isGeneratingSummary } = useSummary();
+
+  const LOCAL_IP = '192.168.1.74';
+  const BACKEND_BASE =
+    Platform.OS === 'android' ? 'http://10.0.2.2:4000'
+    : Platform.OS === 'ios' ? 'http://localhost:4000'
+    : `http://${LOCAL_IP}:4000`;
+
+  console.log('BACKEND_BASE ->', BACKEND_BASE);
 
   useEffect(() => {
     if (isRecording) {
@@ -147,6 +161,28 @@ export default function VoiceRecorderScreen() {
       const summaryText = await generateSummary(text);
       setSummary(summaryText);
       console.log('Summary:', summaryText);
+
+      // Save to backend (MongoDB) — choose host based on platform/emulator
+      try {
+        const res = await fetch(`${BACKEND_BASE}/api/recordings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            transcription: text,
+            summary: summaryText,
+          }),
+        });
+        if (!res.ok) {
+          const body = await res.text();
+          console.error('Backend save failed:', res.status, body);
+          Alert.alert('Save failed', `Server returned ${res.status}`);
+        } else {
+          console.log('Saved recording to backend');
+        }
+      } catch (saveErr) {
+        console.error('Failed to save recording to backend:', saveErr);
+        Alert.alert('Network error', 'Failed to reach backend. See console for details.');
+      }
       
     } catch (error) {
       console.error('Error processing recording:', error);
@@ -160,6 +196,30 @@ export default function VoiceRecorderScreen() {
     setRecordingDuration(0);
     fadeAnim.setValue(0);
   };
+
+  const fetchHistory = async () => {
+    try {
+      setIsLoadingHistory(true);
+      const res = await fetch(`${BACKEND_BASE}/api/recordings`);
+      if (!res.ok) {
+        console.error('Fetch history failed:', await res.text());
+        setHistoryRecords([]);
+        return;
+      }
+      const data = await res.json();
+      setHistoryRecords(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Failed to fetch history:', err);
+      setHistoryRecords([]);
+    } finally {
+      setIsLoadingHistory(false);
+    }
+  };
+
+  // call fetchHistory when opening history
+  useEffect(() => {
+    if (showHistory) fetchHistory();
+  }, [showHistory]);
 
   const isProcessing = isTranscribing || isGeneratingSummary;
 
@@ -178,6 +238,14 @@ export default function VoiceRecorderScreen() {
             <Text style={styles.subtitle}>
               Record, transcribe, and summarize
             </Text>
+
+            {/* History button */}
+            <TouchableOpacity
+              style={{ position: 'absolute', right: 20, top: 18 }}
+              onPress={() => setShowHistory(true)}
+            >
+              <Text style={{ color: '#0984e3', fontWeight: '600' }}>History</Text>
+            </TouchableOpacity>
           </View>
 
           <View style={styles.recordSection}>
@@ -254,6 +322,56 @@ export default function VoiceRecorderScreen() {
           )}
         </ScrollView>
       </SafeAreaView>
+
+      {/* History modal */}
+      <Modal
+        visible={showHistory}
+        animationType="slide"
+        onRequestClose={() => setShowHistory(false)}
+      >
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#0f1724' }}>
+          <View style={{ padding: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Text style={{ color: '#fff', fontSize: 18, fontWeight: '700' }}>History</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <TouchableOpacity onPress={fetchHistory} style={{ marginRight: 16 }}>
+                <Text style={{ color: '#0984e3' }}>{isLoadingHistory ? 'Refreshing...' : 'Refresh'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setShowHistory(false)}>
+                <Text style={{ color: '#ff6b6b' }}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <FlatList
+            data={historyRecords}
+            keyExtractor={(item) => item._id ?? Math.random().toString()}
+            contentContainerStyle={{ padding: 16 }}
+            renderItem={({ item }) => (
+              <View style={{
+                backgroundColor: 'rgba(255,255,255,0.05)',
+                padding: 12,
+                borderRadius: 10,
+                marginBottom: 12,
+                borderWidth: 1,
+                borderColor: 'rgba(255,255,255,0.08)'
+              }}>
+                <Text style={{ color: '#a0a0a0', fontSize: 12 }}>
+                  {item.createdAt ? new Date(item.createdAt).toLocaleString() : ''}
+                </Text>
+                <Text style={{ color: '#fff', marginTop: 6, fontWeight: '600' }}>Transcription</Text>
+                <Text style={{ color: '#e0e0e0', marginTop: 4 }}>{item.transcription}</Text>
+                <Text style={{ color: '#fff', marginTop: 8, fontWeight: '600' }}>Summary</Text>
+                <Text style={{ color: '#e0e0e0', marginTop: 4 }}>{item.summary}</Text>
+              </View>
+            )}
+            ListEmptyComponent={() => (
+              <View style={{ padding: 20, alignItems: 'center' }}>
+                <Text style={{ color: '#a0a0a0' }}>{isLoadingHistory ? 'Loading...' : 'No history yet'}</Text>
+              </View>
+            )}
+          />
+        </SafeAreaView>
+      </Modal>
     </LinearGradient>
   );
 }

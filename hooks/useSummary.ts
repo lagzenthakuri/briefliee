@@ -36,13 +36,14 @@ export function useSummary(): UseSummaryReturn {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer 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`,
+          'Authorization': `Bearer Token_HEre
+          `,
         },
         body: JSON.stringify({
-          model: 'openai/chatgpt-4o-latest', // or 'gpt-4' if you have access
+          model: 'openai/chatgpt-4o-latest',
           messages: messages,
-          max_tokens: 150, // Limit response length for summaries
-          temperature: 0.3, // Lower temperature for more focused summaries
+          max_tokens: 150,
+          temperature: 0.3,
         }),
       });
 
